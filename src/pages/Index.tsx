@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,9 +9,104 @@ import { RecommendationsQueue } from "@/components/dashboard/RecommendationsQueu
 import { RuleEditor } from "@/components/dashboard/RuleEditor";
 import { FeedbackConsole } from "@/components/dashboard/FeedbackConsole";
 import { Shield, Brain, TrendingUp, Users } from "lucide-react";
+import { apiService, DashboardOverview, AgentStats } from "@/services/api";
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState("overview");
+  const [dashboardData, setDashboardData] = useState<DashboardOverview | null>(null);
+  const [agentStats, setAgentStats] = useState<AgentStats | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load dashboard data on component mount
+  useEffect(() => {
+    const loadDashboardData = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        // Load dashboard overview and agent stats in parallel
+        const [overviewResponse, statsResponse] = await Promise.all([
+          apiService.getDashboardOverview(),
+          apiService.getAnalyticsStats(),
+        ]);
+
+        if (overviewResponse.success && overviewResponse.data) {
+          setDashboardData(overviewResponse.data);
+        }
+
+        if (statsResponse.success && statsResponse.data) {
+          setAgentStats(statsResponse.data);
+        }
+      } catch (err) {
+        console.error('Failed to load dashboard data:', err);
+        setError('Failed to load dashboard data. Please check if the backend server is running.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadDashboardData();
+
+    // Set up WebSocket connection for real-time updates
+    const ws = apiService.createWebSocketConnection();
+    
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log('WebSocket message received:', data);
+        
+        // Handle different types of real-time updates
+        switch (data.type) {
+          case 'recommendation.created':
+            // Refresh recommendations when new ones are created
+            console.log('New recommendation created:', data.data);
+            break;
+          case 'rule.updated':
+            // Refresh rules when updated
+            console.log('Rule updated:', data.data);
+            break;
+          default:
+            console.log('Unknown WebSocket message type:', data.type);
+        }
+      } catch (err) {
+        console.error('Failed to parse WebSocket message:', err);
+      }
+    };
+
+    // Cleanup WebSocket connection on unmount
+    return () => {
+      ws.close();
+    };
+  }, []);
+
+  // Show loading state
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-cyber flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading AI Detection Engineering Console...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error state
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gradient-cyber flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-destructive text-6xl mb-4">⚠️</div>
+          <h1 className="text-2xl font-bold text-foreground mb-2">Connection Error</h1>
+          <p className="text-muted-foreground mb-4">{error}</p>
+          <Button onClick={() => window.location.reload()}>
+            Retry Connection
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-cyber">
@@ -65,7 +160,9 @@ const Index = () => {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-muted-foreground">Coverage</p>
-                      <p className="text-2xl font-bold text-success">82%</p>
+                      <p className="text-2xl font-bold text-success">
+                        {dashboardData?.coverage ? `${dashboardData.coverage}%` : '82%'}
+                      </p>
                     </div>
                     <TrendingUp className="h-8 w-8 text-success" />
                   </div>
@@ -77,7 +174,9 @@ const Index = () => {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-muted-foreground">Total Alerts</p>
-                      <p className="text-2xl font-bold text-primary">1,240</p>
+                      <p className="text-2xl font-bold text-primary">
+                        {dashboardData?.totalAlerts ? dashboardData.totalAlerts.toLocaleString() : '1,240'}
+                      </p>
                     </div>
                     <Shield className="h-8 w-8 text-primary" />
                   </div>
@@ -89,7 +188,9 @@ const Index = () => {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-muted-foreground">False Positive Rate</p>
-                      <p className="text-2xl font-bold text-warning">12%</p>
+                      <p className="text-2xl font-bold text-warning">
+                        {dashboardData?.falsePositiveRate ? `${dashboardData.falsePositiveRate}%` : '12%'}
+                      </p>
                     </div>
                     <Brain className="h-8 w-8 text-warning" />
                   </div>
@@ -101,7 +202,9 @@ const Index = () => {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-muted-foreground">Active Rules</p>
-                      <p className="text-2xl font-bold text-accent">347</p>
+                      <p className="text-2xl font-bold text-accent">
+                        {dashboardData?.activeRules ? dashboardData.activeRules.toLocaleString() : '347'}
+                      </p>
                     </div>
                     <Users className="h-8 w-8 text-accent" />
                   </div>
